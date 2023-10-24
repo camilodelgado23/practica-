@@ -1,0 +1,20 @@
+Leche,2.5,10
+Pan,1.5,20
+Huevos,3,5
+Manzanas,1.2,15
+Queso,5,8
+Yogur,1.75,12
+Leche,2.5,5
+Pan integral,2,25
+Pollo,6,4
+Pan,1.5,15
+Cerveza,2.75,30
+Huevos,3,10
+Papas,1.25,18
+Salmón,7,3
+Leche,2.5,8
+Cereal,3.5,10
+Plátanos,1,50
+Manzanas,1.2,10
+Leche,2.5,15
+Pan,1.5,10
