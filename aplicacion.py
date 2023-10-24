@@ -1,61 +1,50 @@
+# Importa las bibliotecas necesarias
 from pyspark import SparkContext
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, sum
-from pyspark.sql.types import StructType, StructField, StringType, FloatType, IntegerType
+from pyspark.sql import Row
 
-# Crear sesión de Spark
-spark = SparkSession.builder.appName("Sales Analysis").getOrCreate()
-sc = spark.sparkContext
+# Crea una sesión de Spark
+spark = SparkSession.builder.appName("AnalisisDeVentas").getOrCreate()
 
-# Definir el esquema de datos para las ventas de productos
-schema = StructType([
-    StructField("product", StringType(), True),
-    StructField("price", FloatType(), True),
-    StructField("quantity", IntegerType(), True)
-])
+# Paso 1: Cargar el archivo de texto como un RDD
+sc = SparkContext.getOrCreate()
+rdd = sc.textFile("/content/notas.txt")
 
-# Cargar el archivo de texto como un RDD
-rdd = sc.textFile("/ruta/al/archivo.txt")
-
-# Convertir cada línea del RDD en una tupla con tres elementos: producto, precio y cantidad
+# Paso 2: Convierte cada línea en una tupla y maneja errores
 def parse_line(line):
-    parts = line.split(",")
-    product = parts[0]
-    price = float(parts[1])
-    quantity = int(parts[2])
-    return (product, price, quantity)
+    try:
+        parts = line.split(",")
+        if len(parts) == 3:
+            return Row(producto=parts[0], precio=float(parts[1]), cantidad=int(parts[2]))
+        else:
+            return Row(producto="Error", precio=0.0, cantidad=0)
+    except:
+        return Row(producto="Error", precio=0.0, cantidad=0)
 
-parsed_rdd = rdd.map(parse_line)
+rdd = rdd.map(parse_line)
 
-# Utilizar reduceByKey para calcular el total de ventas por producto
-total_ventas_por_producto = parsed_rdd.map(lambda x: (x[0], x[1] * x[2])) \
-                                     .reduceByKey(lambda a, b: a + b)
+# Filtra las líneas con errores
+rdd = rdd.filter(lambda x: x.producto != "Error")
 
-# Utilizar reduce para calcular el total de ventas para toda la tienda
-total_ventas_tienda = parsed_rdd.map(lambda x: x[1] * x[2]) \
-                               .reduce(lambda a, b: a + b)
+# Convierte el RDD en un DataFrame
+df = spark.createDataFrame(rdd)
 
-# Crear un DataFrame a partir del RDD
-df = spark.createDataFrame(parsed_rdd, schema=["product", "price", "quantity"])
+# Paso 3: Calcular el total de ventas por producto utilizando reduceByKey
+ventas_por_producto = df.rdd.map(lambda x: (x.producto, x.precio * x.cantidad)).reduceByKey(lambda x, y: x + y)
 
-# Utilizar Spark SQL para realizar consultas
-df.createOrReplaceTempView("ventas")
-resultado_sql = spark.sql("""
-    SELECT product, SUM(price * quantity) AS total_ventas_por_producto
-    FROM ventas
-    GROUP BY product
-    ORDER BY total_ventas_por_producto DESC
-""")
+# Paso 4: Calcular el total de ventas para toda la tienda utilizando reduce
+total_ventas_tienda = ventas_por_producto.map(lambda x: x[1]).reduce(lambda x, y: x + y)
 
-# Encontrar el producto más vendido
-producto_mas_vendido = resultado_sql.first()
+# Paso 5: Encontrar el producto más vendido utilizando sortBy
+producto_mas_vendido = ventas_por_producto.sortBy(lambda x: x[1], ascending=False).first()
 
-# Imprimir los resultados
+# Imprime los resultados
 print("Total de ventas por producto:")
-resultado_sql.show()
+for producto, ventas in ventas_por_producto.collect():
+    print(f"{producto}: {ventas}")
 
 print(f"Total de ventas para toda la tienda: {total_ventas_tienda}")
-print(f"Producto más vendido: {producto_mas_vendido['product']} con un total de {producto_mas_vendido['total_ventas_por_producto']} unidades vendidas")
+print(f"Producto más vendido: {producto_mas_vendido[0]} con {producto_mas_vendido[1]} ventas")
 
-# Detener Spark
+# Detén la sesión de Spark
 spark.stop()
