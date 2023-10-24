@@ -1,42 +1,51 @@
-# Importar las bibliotecas necesarias
-from pyspark import SparkContext
+from pyspark.ml.feature import VectorAssembler
+from pyspark.ml.regression import LinearRegression
 from pyspark.sql import SparkSession
+from pyspark.sql.types import StructType, StructField, StringType, FloatType, IntegerType
 
-# Inicializar Spark
-spark = SparkSession.builder.appName("AnalisisVentas").getOrCreate()
-sc = spark.sparkContext
+# Crear sesión de Spark
+spark = SparkSession.builder.appName("Sales Analysis").getOrCreate()
 
-# Paso 1: Cargar el archivo de texto como un RDD
-rdd = sc.textFile("ruta/al/archivo.txt")
+# Definir el esquema de datos para las ventas de productos
+schema = StructType([
+    StructField("product", StringType(), True),
+    StructField("price", FloatType(), True),
+    StructField("quantity", IntegerType(), True)
+])
 
-# Paso 2: Convertir cada línea en una tupla con tres elementos: nombre del producto, precio y cantidad
-def parse_line(line):
-    parts = line.split(",")
-    product = parts[0]
-    price = float(parts[1])
-    quantity = int(parts[2])
-    return (product, price, quantity)
+# Cargar los datos de ventas de productos desde un archivo CSV
+data = spark.read.format("csv").option("header", "true").schema(schema).load("/ruta/al/archivo.csv")
 
-parsed_rdd = rdd.map(parse_line)
+# Calcular el total de ventas por producto
+data = data.withColumn("total_sales", data["price"] * data["quantity"])
 
-# Paso 3: Calcular el total de ventas por producto utilizando reduceByKey
-total_ventas_por_producto = parsed_rdd.map(lambda x: (x[0], x[1] * x[2])) \
-                                     .reduceByKey(lambda a, b: a + b)
+# Convertir las características a un vector denso (precio y cantidad)
+assembler = VectorAssembler(inputCols=["price", "quantity"], outputCol="features")
+data = assembler.transform(data)
 
-# Paso 4: Calcular el total de ventas para toda la tienda utilizando reduce
-total_ventas_tienda = parsed_rdd.map(lambda x: x[1] * x[2]) \
-                               .reduce(lambda a, b: a + b)
+# Crear modelo de regresión lineal y entrenarlo con los datos de ventas
+lr = LinearRegression(featuresCol="features", labelCol="total_sales")
+model = lr.fit(data)
 
-# Paso 5: Encontrar el producto más vendido utilizando sortBy
-producto_mas_vendido = total_ventas_por_producto.sortBy(lambda x: x[1], ascending=False).first()
+# Hacer predicciones en los datos existentes
+predictions = model.transform(data)
 
-# Imprimir los resultados
-print("Total de ventas por producto:")
-for product, total in total_ventas_por_producto.collect():
-    print(f"{product}: {total}")
+# Mostrar las predicciones y resultados
+predictions.select("product", "total_sales", "prediction").show()
 
-print(f"Total de ventas para toda la tienda: {total_ventas_tienda}")
-print(f"Producto más vendido: {producto_mas_vendido[0]} con un total de {producto_mas_vendido[1]} unidades vendidas")
+# Calcular el total de ventas para toda la tienda
+total_store_sales = predictions.select("total_sales").agg({"total_sales": "sum"}).collect()[0][0]
+print(f"Total de ventas para toda la tienda: {total_store_sales}")
+
+# Encontrar el producto más vendido
+most_sold_product = predictions.orderBy("total_sales", ascending=False).first()
+print(f"Producto más vendido: {most_sold_product['product']} con un total de {most_sold_product['total_sales']} unidades vendidas")
+
+# Puedes escribir los resultados a un archivo CSV si es necesario
+# predictions.select("product", "price", "quantity", "total_sales", "prediction").write \
+#     .option("header", "true") \
+#     .csv("/ruta/de/salida")
 
 # Detener Spark
 spark.stop()
+
