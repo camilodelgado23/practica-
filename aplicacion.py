@@ -8,7 +8,7 @@ spark = SparkSession.builder.appName("AnalisisDeVentas").getOrCreate()
 
 # Paso 1: Cargar el archivo de texto como un RDD
 sc = SparkContext.getOrCreate()
-rdd = sc.textFile("/content/notas.txt")
+rdd = sc.textFile("C:\Users\mirlo\Documents\notas.txt")
 
 # Paso 2: Convierte cada línea en una tupla y maneja errores
 def parse_line(line):
